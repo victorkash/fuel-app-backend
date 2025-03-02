@@ -3,7 +3,7 @@ from flask_cors import CORS
 import sqlite3
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "https://fuel-app-backend-1.onrender.com"}})
+CORS(app, resources={r"/api/*": {"origins": "https://67c4b0d1068a0639edffac27--ammica.netlify.app/"}})
 
 # Database connection helper
 def get_db_connection():
