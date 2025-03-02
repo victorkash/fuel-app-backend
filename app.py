@@ -1,17 +1,33 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sqlite3
+import os  # Added missing import
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "https://67c4b0d1068a0639edffac27--ammica.netlify.app/"}})
 
-# Database connection helper
+# Configure CORS more securely
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": [
+                "https://ammica.netlify.app",  # Your production domain
+                "https://67c4b0d1068a0639edffac27--ammica.netlify.app",  # Current Netlify domain
+                "http://localhost:3000"  # For local development
+            ],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"]
+        }
+    }
+)
+
+# Database connection helper (unchanged)
 def get_db_connection():
     conn = sqlite3.connect('database.db')
-    conn.row_factory = sqlite3.Row  # Return rows as dictionaries
+    conn.row_factory = sqlite3.Row
     return conn
 
-# Initialize the database
+# Initialize the database (unchanged)
 def init_db():
     with get_db_connection() as conn:
         conn.execute('''CREATE TABLE IF NOT EXISTS sales
