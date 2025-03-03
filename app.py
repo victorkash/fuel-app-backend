@@ -1,19 +1,19 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import sqlite3
-import os  # Added missing import
+import psycopg2  # PostgreSQL driver
+import os
 
 app = Flask(__name__)
 
-# Configure CORS more securely
+# Configure CORS
 CORS(
     app,
     resources={
         r"/api/*": {
             "origins": [
-                "https://ammica.netlify.app",  # Your production domain
-                "https://67c4b0d1068a0639edffac27--ammica.netlify.app",  # Current Netlify domain
-                "http://localhost:3000"  # For local development
+                "https://ammica.netlify.app",
+                "https://67c4b0d1068a0639edffac27--ammica.netlify.app",
+                "http://localhost:3000"
             ],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"]
@@ -21,25 +21,27 @@ CORS(
     }
 )
 
-# Database connection helper (unchanged)
+# Database connection helper for PostgreSQL
 def get_db_connection():
-    conn = sqlite3.connect('database.db')
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])  # Use Render's DATABASE_URL
     return conn
 
-# Initialize the database (unchanged)
+# Initialize database with PostgreSQL syntax
 def init_db():
     with get_db_connection() as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS sales
-                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                         fuel_type TEXT NOT NULL,
-                         quantity REAL NOT NULL,
-                         price REAL NOT NULL,
-                         date TEXT NOT NULL)''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS customers
-                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                         name TEXT NOT NULL,
-                         points INTEGER DEFAULT 0)''')
+        cursor = conn.cursor()
+        # Sales table
+        cursor.execute('''CREATE TABLE IF NOT EXISTS sales
+                          (id SERIAL PRIMARY KEY,
+                           fuel_type TEXT NOT NULL,
+                           quantity REAL NOT NULL,
+                           price REAL NOT NULL,
+                           date TEXT NOT NULL)''')
+        # Customers table
+        cursor.execute('''CREATE TABLE IF NOT EXISTS customers
+                          (id SERIAL PRIMARY KEY,
+                           name TEXT NOT NULL,
+                           points INTEGER DEFAULT 0)''')
         conn.commit()
 
 init_db()
@@ -57,7 +59,7 @@ def sales():
             return jsonify({"error": "Missing data"}), 400
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO sales (fuel_type, quantity, price, date) VALUES (?, ?, ?, ?)",
+            cursor.execute("INSERT INTO sales (fuel_type, quantity, price, date) VALUES (%s, %s, %s, %s)",
                            (data['fuel_type'], data['quantity'], data['price'], data['date']))
             conn.commit()
         return jsonify({"message": "Sale logged"}), 201
@@ -70,11 +72,14 @@ def add_customer():
     data = request.json
     if 'name' not in data:
         return jsonify({"error": "Name is required"}), 400
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO customers (name, points) VALUES (?, 0)", (data['name'],))
-        conn.commit()
-    return jsonify({"message": "Customer added"}), 201
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO customers (name, points) VALUES (%s, 0)", (data['name'],))
+            conn.commit()
+        return jsonify({"message": "Customer added"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Reward points endpoint
 @app.route('/api/reward', methods=['POST'])
@@ -82,13 +87,17 @@ def reward():
     data = request.json
     if 'name' not in data or 'points' not in data:
         return jsonify({"error": "Name and points are required"}), 400
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE customers SET points = points + ? WHERE name = ?", (data['points'], data['name']))
-        if cursor.rowcount == 0:
-            return jsonify({"error": "Customer not found"}), 404
-        conn.commit()
-    return jsonify({"message": "Points added"}), 200
+    try:
+        points = int(data['points'])
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE customers SET points = points + %s WHERE name = %s", (points, data['name']))
+            if cursor.rowcount == 0:
+                return jsonify({"error": "Customer not found"}), 404
+            conn.commit()
+        return jsonify({"message": "Points added"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Sales by Fuel Type endpoint
 @app.route('/api/sales_by_type', methods=['GET'])
@@ -103,15 +112,19 @@ def sales_by_type():
     if filter_type == 'custom':
         if not start_date or not end_date:
             return jsonify({"error": "Start and end dates are required"}), 400
-        query += " WHERE date BETWEEN ? AND ?"
+        query += " WHERE date BETWEEN %s AND %s"
         params.extend([start_date, end_date])
     
     query += " GROUP BY fuel_type"
     
-    with get_db_connection() as conn:
-        cursor = conn.execute(query, params)
-        data = cursor.fetchall()
-    return jsonify([{"fuel_type": row['fuel_type'], "total_quantity": row['total_quantity']} for row in data])
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            data = cursor.fetchall()
+        return jsonify([{"fuel_type": row[0], "total_quantity": row[1]} for row in data])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Sales Over Time endpoint
 @app.route('/api/sales_over_time', methods=['GET'])
@@ -126,15 +139,19 @@ def sales_over_time():
     if filter_type == 'custom':
         if not start_date or not end_date:
             return jsonify({"error": "Start and end dates are required"}), 400
-        query += " WHERE date BETWEEN ? AND ?"
+        query += " WHERE date BETWEEN %s AND %s"
         params.extend([start_date, end_date])
     
     query += " GROUP BY date ORDER BY date ASC"
     
-    with get_db_connection() as conn:
-        cursor = conn.execute(query, params)
-        data = cursor.fetchall()
-    return jsonify([{"date": row['date'], "total_sales": row['total_sales']} for row in data])
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            data = cursor.fetchall()
+        return jsonify([{"date": row[0], "total_sales": row[1]} for row in data])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Reports endpoint
 @app.route('/api/reports', methods=['GET'])
@@ -149,15 +166,19 @@ def reports():
     if filter_type == 'custom':
         if not start_date or not end_date:
             return jsonify({"error": "Start and end dates are required"}), 400
-        query += " WHERE date BETWEEN ? AND ?"
+        query += " WHERE date BETWEEN %s AND %s"
         params.extend([start_date, end_date])
     
     query += " GROUP BY fuel_type"
     
-    with get_db_connection() as conn:
-        cursor = conn.execute(query, params)
-        data = cursor.fetchall()
-    return jsonify([dict(row) for row in data])
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            data = cursor.fetchall()
+        return jsonify([{"fuel_type": row[0], "total_quantity": row[1], "total_revenue": row[2]} for row in data])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
