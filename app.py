@@ -5,7 +5,7 @@ import os
 
 app = Flask(__name__)
 
-# Configure CORS
+# Configure CORS (same as before)
 CORS(
     app,
     resources={
@@ -21,14 +21,14 @@ CORS(
     }
 )
 
-# Updated database connection with error handling
+# Database connection (same as before)
 def get_db_connection():
     database_url = os.getenv('DATABASE_URL')
     if not database_url:
         raise ValueError("DATABASE_URL environment variable not set")
     return psycopg2.connect(database_url)
 
-# Database initialization with app context
+# Updated database initialization
 def init_db():
     try:
         with app.app_context():
@@ -55,10 +55,8 @@ def init_db():
         app.logger.error(f"Database initialization failed: {str(e)}")
         raise
 
-# Initialize database when app starts
-@app.before_first_request
-def initialize_db():
-    init_db()
+# Initialize database immediately
+init_db()
 
 @app.route('/')
 def home():
