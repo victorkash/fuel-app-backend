@@ -2,61 +2,56 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
 import os
+import logging
 
 app = Flask(__name__)
 
 # Configure CORS (same as before)
-CORS(
-    app,
-    resources={
-        r"/api/*": {
-            "origins": [
-                "https://ammica.netlify.app",
-                "https://67c4b0d1068a0639edffac27--ammica.netlify.app",
-                "http://localhost:3000"
-            ],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"]
-        }
-    }
-)
+CORS(app, resources={r"/api/*": {"origins": ["https://ammica.netlify.app", "http://localhost:3000"]}})
 
-# Database connection (same as before)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
 def get_db_connection():
     database_url = os.getenv('DATABASE_URL')
     if not database_url:
-        raise ValueError("DATABASE_URL environment variable not set")
+        app.logger.error("DATABASE_URL environment variable not set")
+        raise RuntimeError("Database configuration missing")
     return psycopg2.connect(database_url)
 
-# Updated database initialization
 def init_db():
     try:
         with app.app_context():
-            with get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS sales (
-                        id SERIAL PRIMARY KEY,
-                        fuel_type TEXT NOT NULL,
-                        quantity REAL NOT NULL,
-                        price REAL NOT NULL,
-                        date TEXT NOT NULL
-                    )
-                ''')
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS customers (
-                        id SERIAL PRIMARY KEY,
-                        name TEXT NOT NULL UNIQUE,
-                        points INTEGER DEFAULT 0
-                    )
-                ''')
-                conn.commit()
+            conn = get_db_connection()
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS sales (
+                            id SERIAL PRIMARY KEY,
+                            fuel_type TEXT NOT NULL,
+                            quantity REAL NOT NULL,
+                            price REAL NOT NULL,
+                            date TEXT NOT NULL
+                        )
+                    ''')
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS customers (
+                            id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL UNIQUE,
+                            points INTEGER DEFAULT 0
+                        )
+                    ''')
+                    conn.commit()
+            finally:
+                conn.close()
+        app.logger.info("Database initialized successfully")
     except Exception as e:
         app.logger.error(f"Database initialization failed: {str(e)}")
         raise
 
-# Initialize database immediately
-init_db()
+# Initialize database only if in main process
+if __name__ != '__main__':
+    init_db()
 
 @app.route('/')
 def home():
