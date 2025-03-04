@@ -21,15 +21,16 @@ CORS(
     }
 )
 
-# Database connection helper for PostgreSQL
 def get_db_connection():
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])  # Use Render's DATABASE_URL
-    return conn
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable is not set")
+    return psycopg2.connect(database_url)
 
-# Initialize database with PostgreSQL syntax
+# Move init_db() to run within app context
 def init_db():
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
+    with app.app_context():
+        with get_db_connection() as conn:
         # Sales table
         cursor.execute('''CREATE TABLE IF NOT EXISTS sales
                           (id SERIAL PRIMARY KEY,
