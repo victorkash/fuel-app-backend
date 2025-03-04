@@ -2,22 +2,32 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
 import os
+import time
 import logging
 
 app = Flask(__name__)
-
-# Configure CORS (same as before)
-CORS(app, resources={r"/api/*": {"origins": ["https://ammica.netlify.app", "http://localhost:3000"]}})
+CORS(app)  # Simplified CORS setup for troubleshooting
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def get_db_connection():
-    database_url = os.getenv('DATABASE_URL')
-    if not database_url:
-        app.logger.error("DATABASE_URL environment variable not set")
-        raise RuntimeError("Database configuration missing")
-    return psycopg2.connect(database_url)
+def get_db_connection(retries=3, delay=2):
+    for attempt in range(retries):
+        try:
+            db_url = os.environ.get('DATABASE_URL')
+            if not db_url:
+                raise ValueError("DATABASE_URL not found in environment variables")
+                
+            conn = psycopg2.connect(db_url)
+            logger.info("Successfully connected to database")
+            return conn
+        except Exception as e:
+            logger.warning(f"Connection attempt {attempt + 1} failed: {str(e)}")
+            if attempt < retries - 1:
+                time.sleep(delay)
+                continue
+            raise RuntimeError(f"Failed to connect to database after {retries} attempts")
 
 def init_db():
     try:
@@ -42,16 +52,15 @@ def init_db():
                         )
                     ''')
                     conn.commit()
+                    logger.info("Tables created successfully")
             finally:
                 conn.close()
-        app.logger.info("Database initialized successfully")
     except Exception as e:
-        app.logger.error(f"Database initialization failed: {str(e)}")
+        logger.error(f"Database initialization failed: {str(e)}")
         raise
 
-# Initialize database only if in main process
-if __name__ != '__main__':
-    init_db()
+# Initialize database only once
+init_db()
 
 @app.route('/')
 def home():
